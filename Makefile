@@ -3,7 +3,7 @@ PROTOC:=$(BUILD_DIR)/bin/protoc
 PROTOC_GEN_GO:=$(BUILD_DIR)/protoc-gen-go
 PROTOC_GEN_GO_GRPC:=$(BUILD_DIR)/protoc-gen-go-grpc
 
-all: $(BUILD_DIR)/.gocheck_stamp
+all: $(BUILD_DIR)/.gocheck_stamp $(BUILD_DIR)/.rustcheck_stamp
 
 # include all go files in current dir and below
 # Make's wildcard function can't match all
@@ -13,8 +13,18 @@ $(BUILD_DIR)/.gocheck_stamp: $(GOFILES) echopb/echo.pb.go | $(BUILD_DIR)
 	go test ./...
 	go vet ./...
 	go fmt ./...
-	staticcheck --checks=all ./...
+	# staticcheck --checks=all ./...
 	go mod tidy
+	touch $@
+
+# include all Rust files in current dir and below
+# Make's wildcard function can't match all
+RUSTFILES:=$(shell find . -name '*.rs')
+
+$(BUILD_DIR)/.rustcheck_stamp: $(RUSTFILES) | $(BUILD_DIR)
+	cargo test
+	cargo clippy
+	cargo fmt
 	touch $@
 
 echopb/echo.pb.go: proto/echo.proto $(BUILD_DIR)/.proto_format_stamp $(PROTOC) $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC)

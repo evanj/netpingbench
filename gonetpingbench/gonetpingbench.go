@@ -52,9 +52,11 @@ func main() {
 		runServers(*listenAddr, *tcpPort, *grpcPort)
 		return
 	}
-	if !(1 <= *grpcChannels && *grpcChannels <= *throughputThreads) {
-		fmt.Fprintf(os.Stderr, "ERROR: --grpcChannels=%d; must be in range [1, throughputThreads=%d]",
-			*grpcChannels, *throughputThreads)
+	if *grpcChannels < 1 {
+		fmt.Fprintf(os.Stderr, "ERROR: --grpcChannels=%d; must be >= 1", *grpcChannels)
+	}
+	if *throughputThreads < 1 {
+		fmt.Fprintf(os.Stderr, "ERROR: --throughputThreads=%d; must be >= 1", *throughputThreads)
 	}
 
 	// TCP test: need separate connections for each thread
@@ -143,7 +145,7 @@ func runServers(listenAddr string, tcpPort int, grpcPort int) {
 	}
 
 	slog.Info("blocking forever to let servers run ...")
-	_ = <-make(chan struct{})
+	<-make(chan struct{})
 }
 
 type echoClient interface {
