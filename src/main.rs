@@ -1,4 +1,5 @@
 pub mod echopb {
+    #![allow(clippy::pedantic, clippy::nursery)]
     tonic::include_proto!("echopb");
 }
 
@@ -28,7 +29,7 @@ const TCP_INITIAL_BUFFER_BYTES: usize = 4096;
 struct EchoService;
 
 impl EchoService {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {}
     }
 }
@@ -43,6 +44,7 @@ impl Echo for EchoService {
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
+#[allow(clippy::struct_field_names)]
 struct Args {
     /// Address to listen on for the gRPC server.
     #[arg(long, default_value = "127.0.0.1:8003")]
@@ -59,7 +61,7 @@ struct Args {
 
 /// Set the NOFILES rlimit on max open files to the max value. Go does this by default. See
 /// syscall/rlimit.go:
-/// https://github.com/golang/go/blob/master/src/syscall/rlimit.go
+/// <https://github.com/golang/go/blob/master/src/syscall/rlimit.go>
 fn raise_nofile_rlimit() -> Result<(), std::io::Error> {
     // TODO: use nix for friendlier interface? libc has fewer dependencies
 
@@ -102,20 +104,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("waiting for server to exit (should never exit) ...");
 
     match thread_server_handle.join() {
-        Ok(result) => match result {
-            Ok(_) => {}
-            Err(e) => panic!("thread server returned error: {e:?}"),
-        },
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => panic!("thread server returned error: {e:?}"),
         Err(e) => {
             panic!("thread server paniced: {e:?}")
         }
     }
 
     match tokio_handle.join() {
-        Ok(result) => match result {
-            Ok(_) => {}
-            Err(e) => panic!("tokio returned error: {e:?}"),
-        },
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => panic!("tokio returned error: {e:?}"),
         Err(e) => {
             panic!("tokio paniced: {e:?}")
         }
@@ -171,7 +169,7 @@ async fn tokio_echo_server(
 
 async fn tokio_echo_connection_no_err(connection: tokio::net::TcpStream) {
     match tokio_echo_connection(connection).await {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(err) => {
             panic!("tokio echo connection failed: {err}");
         }
@@ -203,7 +201,7 @@ struct ErrorMessageOnly {
 }
 
 impl ErrorMessageOnly {
-    fn err<E: std::error::Error>(e: E) -> Result<(), ErrorMessageOnly> {
+    fn err<E: std::error::Error>(e: E) -> Result<(), Self> {
         Err(Self {
             message: format!("{e}"),
         })
@@ -247,6 +245,7 @@ fn run_thread_server(listener: TcpListener) -> Result<(), ErrorMessageOnly> {
         let connection = connection_result?;
         thread::spawn(move || run_thread_echo_no_errors(connection));
     }
+    drop(listener);
     Ok(())
 }
 

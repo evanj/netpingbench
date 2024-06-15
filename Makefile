@@ -23,7 +23,7 @@ RUSTFILES:=$(shell find . -name '*.rs')
 
 $(BUILD_DIR)/.rustcheck_stamp: $(RUSTFILES) | $(BUILD_DIR)
 	cargo test
-	cargo clippy
+	cargo clippy --all-targets
 	cargo fmt
 	touch $@
 

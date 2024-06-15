@@ -2,12 +2,14 @@
 
 An attempt to compare "out of the box" performance for small network request/response using TCP and gRPC in Go and Rust, on a "reasonable" sized server (8 cores, 16 hyperthreads). I wanted a some rough understanding of what performance we should expect on modern systems in the cloud. This is a very synthetic benchmark, since the application does nothing. It really is testing how efficiently these runtimes use the operating system, since nearly all the time is spent doing network I/O.
 
+
 ## Results Summary
 
-* Max TCP throughput: 1250k reqs/sec using Rust async tokio; 1140k reqs/sec using Go; 1000k reqs/sec using Rust threads.
-* Max gRPC throughput: 390k reqs/sec using Go, or 355k reqs/sec using Rust Tonic. Neither implementation uses all the available CPU, although they get close. 
-* Both gRPC implementations were unable to use 10)% need many connections to 
-*TL;DR*: Max of about 1M reqs/sec using raw TCP, 500k reqs/sec using Go+gRPC, and 350k reqs/sec with  To scale gRPC you will need to use lots of connections, like at least 1 for every 4 CPU cores. Rust is about the same as Go in this benchmark, although Rust+Tonic gRPC is a bit slower than Go+gRPC.
+* Max TCP echo throughput: 1250k reqs/sec using Rust async tokio; 1140k reqs/sec using Go; 1000k reqs/sec using Rust threads.
+* Max gRPC throughput: 390k reqs/sec using Go, or 355k reqs/sec using Rust Tonic. Neither implementation uses all the available CPU, although they get close.
+* Neither Go nor Rust gRPC could use 100% CPU, although they get up to approximately 90%. They also need many concurrent separate connections to scale to up.
+
+*TL;DR*: Max of about 1M reqs/sec using raw TCP, 500k reqs/sec using Go+gRPC, and 350k reqs/sec with Rust+Tonic gRPC. To scale gRPC you will need to use lots of connections, like at least 1 for every 4 CPU cores. Rust is about the same as Go in this benchmark, although Rust+Tonic gRPC is a bit slower than Go+gRPC.
 
 Rust+Tonic gRPC is quite a bit less efficient than Go+gRPC at parallelizing work. I only got about half the throughput I got with Go + gRPC.
 
@@ -19,8 +21,9 @@ The benchmark is a Go client that starts many Goroutines making "echo" requests.
 The servers ran on a Google Cloud c3d-highcpu-16 machine (AMD EPYC Genoa 4th Generation, 8 cores, 16 hyperthreads, 32 GiB RAM, 20 Gbps network), and the client running on a c3d-highcpu-60 (30 cores, 60 hyperthreads). The goal is the server should be the bottleneck. During the gRPC benchmarks in particular the CPU on the client according to top sometimes spiked up to around 4000% (40/60 VCPUs).
 
 * Go TCP: max 1014k reqs/sec with 512 client threads.
-* Go gRPC: max 390k reqs/sec with 8192 client threads and 256 connections. As a rough rule of thumb: for best throughput you need many  connections, but too many connections and throughput will decrease again. With one connection it only gets up to about 110k reqs/sec and doesn't use that much CPU.
+* Go gRPC: max 390k reqs/sec with 8192 client threads and 256 connections. As a rough rule of thumb: for best throughput you need many connections, but too many connections and throughput will decrease again. With one connection it only gets up to about 110k reqs/sec and doesn't use that much CPU.
 * Rust TCP threads: max of 1050k reqs/sec with 1024 client threads.
+* Rust tonic async TCP echo: max of 1236k reqs/sec with 2048 client threads.
 * Rust tonic gRPC: 355k reqs/sec with 8192 client threads and 256 connections. With 1 connection, it only can use about ~4 CPU cores, and gets a max of 100k reqs/sec. 
 
 
