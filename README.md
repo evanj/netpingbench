@@ -1,6 +1,6 @@
-# netpingbench: Rough TCP and gRPC benchmark in Go and Rust
+# netpingbench: TCP and gRPC echo benchmark in Go and Rust
 
-An attempt to compare "out of the box" performance for small network request/response using TCP and gRPC in Go and Rust, on a "reasonable" sized server (8 cores, 16 hyperthreads). I wanted a some rough understanding of what performance we should expect on modern systems in the cloud. This is a very synthetic benchmark, since the application does nothing. It really is testing how efficiently these runtimes use the operating system, since nearly all the time is spent doing network I/O.
+This is an attempt to compare "out of the box" performance for small network request/response using TCP and gRPC in Go and Rust, on a modest cloud server: 8 cores/16 threads. I used AMD's latest CPU: AMD EPYC 9004 series, which uses Zen4 or Zen4c cores (aka AMD 4th generation, specifically Google Cloud's C3D machine type). My understanding is that as of 2024-06, this is the CPU with the best single core performance, so I'm hoping this is representative of what systems will look like over the next few years. This benchmark is a client/server "echo": where the client sends a small amount of data in a request, and the server sends it back. It should test how efficiently these runtimes use the operating system, since nearly all the CPU time is spent doing network I/O.
 
 
 ## Results Summary
