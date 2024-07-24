@@ -193,7 +193,7 @@ type grpcEchoClient struct {
 }
 
 func newGRPCEchoClient(addr string, port int) (*grpcEchoClient, error) {
-	conn, err := grpc.Dial(addr+":"+strconv.Itoa(port), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr+":"+strconv.Itoa(port), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
 	}
