@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/evanj/netpingbench/echopb"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -145,23 +147,38 @@ func runThroughputSweep(clients []echoClient, numClientsStart int, numClientsEnd
 }
 
 func runThroughputBenchmark(clients []echoClient, runDuration time.Duration, label string) error {
+	startUsage := unix.Rusage{}
+	endUsage := unix.Rusage{}
+
 	requestsChan := make(chan int)
 	exit := &atomic.Bool{}
 	for _, client := range clients {
 		go runThroughputClient(client, requestsChan, exit)
 	}
 
+	err1 := unix.Getrusage(unix.RUSAGE_SELF, &startUsage)
 	time.Sleep(runDuration)
+	err2 := unix.Getrusage(unix.RUSAGE_SELF, &endUsage)
 	exit.Store(true)
+
+	err := errors.Join(err1, err2)
+	if err != nil {
+		return err
+	}
 
 	total := 0
 	for i := 0; i < len(clients); i++ {
 		total += <-requestsChan
 	}
+
+	clientCPU := time.Duration(endUsage.Utime.Nano() + endUsage.Stime.Nano() -
+		startUsage.Utime.Nano() - startUsage.Stime.Nano())
 	slog.Info("throughput result",
 		slog.String("label", label),
 		slog.Int("threads", len(clients)),
 		slog.Float64("requests_per_sec", float64(total)/runDuration.Seconds()),
+		slog.Duration("client_cpu_ns", clientCPU),
+		slog.Float64("client_avg_cpu_cores", clientCPU.Seconds()/runDuration.Seconds()),
 	)
 	return nil
 }
