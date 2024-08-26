@@ -1,0 +1,9 @@
+# do not copy Rust builds anywhere in the tree
+**/target/**
+# do not copy git dir
+.git
+
+# ignore a few files so edits don't invalidate Docker's cache
+Dockerfile
+Makefile
+README.md
