@@ -40,11 +40,14 @@ func main() {
 	listenAddr := flag.String("listenAddr", "localhost",
 		"listening address: use empty to listen on all devices")
 	tcpPort := flag.Int("tcpPort", 8001, "port for TCP echo requests")
+	otherTCPPort := flag.Int("otherTCPPort", 0, "additional port for TCP echo requests (use for tokio async)")
 	grpcPort := flag.Int("grpcPort", 8002, "port for gRPC echo requests")
 	runDuration := flag.Duration("runDuration", 10*time.Second, "time to run the throughput test")
 	remoteAddr := flag.String("remoteAddr", "",
 		"IP/DNS name for remote endpoints. If empty: run servers only")
 	throughputThreads := flag.Int("throughputThreads", 1, "threads to run the throughput test")
+	throughputThreadsEnd := flag.Int("throughputThreadsEnd", 0,
+		"if specified, sweep [throughputThreads, throughputThreadsEnd], doubling each time")
 	grpcChannels := flag.Int("grpcChannels", 1, "number of separate gRPC channels to use (max=throughputThreads)")
 	flag.Parse()
 
@@ -58,39 +61,54 @@ func main() {
 	if *throughputThreads < 1 {
 		fmt.Fprintf(os.Stderr, "ERROR: --throughputThreads=%d; must be >= 1", *throughputThreads)
 	}
+	if *throughputThreadsEnd != 0 && *throughputThreadsEnd < *throughputThreads {
+		fmt.Fprintf(os.Stderr, "ERROR: --throughputThreadsEnd=%d; must be >= throughputThreads=%d",
+			*throughputThreadsEnd, *throughputThreads)
+	}
+
+	if *throughputThreadsEnd == 0 {
+		*throughputThreadsEnd = *throughputThreads
+	}
 
 	// TCP test: need separate connections for each thread
+	runTCPThroughputBenchmark(*remoteAddr, *tcpPort, *throughputThreads, *throughputThreadsEnd, *runDuration, "tcp")
+	if *otherTCPPort != 0 {
+		runTCPThroughputBenchmark(*remoteAddr, *otherTCPPort, *throughputThreads, *throughputThreadsEnd, *runDuration, "other_tcp")
+	}
+
+	runGRPCThroughputBenchmark(*remoteAddr, *grpcPort, *throughputThreads, *throughputThreadsEnd, *runDuration, *grpcChannels)
+}
+
+func runTCPThroughputBenchmark(addr string, port int, numClientsStart int, numClientsEnd int, runDuration time.Duration, label string) error {
+	// TCP test: need separate connections for each thread
 	var clients []echoClient
-	for i := 0; i < *throughputThreads; i++ {
-		client, err := newTCPEchoClient(*remoteAddr, *tcpPort)
+	for i := 0; i < numClientsEnd; i++ {
+		client, err := newTCPEchoClient(addr, port)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		clients = append(clients, client)
 	}
-	err := runThroughputBenchmark(clients, *runDuration, "tcp")
-	if err != nil {
-		panic(err)
-	}
+	return runThroughputSweep(clients, numClientsStart, numClientsEnd, runDuration, label)
+}
 
+func runGRPCThroughputBenchmark(addr string, port int, numClientsStart int, numClientsEnd int, runDuration time.Duration, grpcChannels int) error {
 	// gRPC test: share a number of channels
 	var channels []echoClient
-	for i := 0; i < *grpcChannels; i++ {
-		channel, err := newGRPCEchoClient(*remoteAddr, *grpcPort)
+	for i := 0; i < grpcChannels; i++ {
+		channel, err := newGRPCEchoClient(addr, port)
 		if err != nil {
 			panic(err)
 		}
 		channels = append(channels, channel)
 	}
 	// distribute the channels across threads
-	clients = clients[:0]
-	for i := 0; i < *throughputThreads; i++ {
-		clients = append(clients, channels[i%*grpcChannels])
+	var clients []echoClient
+	for i := 0; i < numClientsEnd; i++ {
+		clients = append(clients, channels[i%grpcChannels])
 	}
-	err = runThroughputBenchmark(clients, *runDuration, fmt.Sprintf("grpc %d channels", *grpcChannels))
-	if err != nil {
-		panic(err)
-	}
+	grpcLabel := fmt.Sprintf("grpc-channels=%d", grpcChannels)
+	return runThroughputSweep(clients, numClientsStart, numClientsEnd, runDuration, grpcLabel)
 }
 
 func runThroughputClient(client echoClient, requestsChan chan<- int, exit *atomic.Bool) {
@@ -104,6 +122,26 @@ func runThroughputClient(client echoClient, requestsChan chan<- int, exit *atomi
 		requests += 1
 	}
 	requestsChan <- requests
+}
+
+func runThroughputSweep(clients []echoClient, numClientsStart int, numClientsEnd int, runDuration time.Duration, label string) error {
+	if !(numClientsStart <= numClientsEnd) {
+		return fmt.Errorf("numClientsStart=%d must be <= numClientsEnd=%d", numClientsStart, numClientsEnd)
+	}
+	if numClientsStart < 1 {
+		return fmt.Errorf("numClientsStart=%d must be >= 1", numClientsStart)
+	}
+	if len(clients) != numClientsEnd {
+		return fmt.Errorf("len(clients)=%d must equal numClientsEnd=%d", len(clients), numClientsEnd)
+	}
+
+	for numClients := 1; numClients <= numClientsEnd; numClients *= 2 {
+		err := runThroughputBenchmark(clients[0:numClients], runDuration, label)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runThroughputBenchmark(clients []echoClient, runDuration time.Duration, label string) error {
