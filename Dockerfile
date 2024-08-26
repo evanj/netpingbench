@@ -12,8 +12,16 @@ COPY . /go/src/
 WORKDIR /go/src
 RUN go build -v -o /go/bin/gonetpingbench ./gonetpingbench
 
-FROM rust:1.80-bookworm AS rust_builder
+FROM rust:1.80-bookworm AS cached_rust_dependencies
 WORKDIR /rustbuild
+COPY build.rs Cargo.toml Cargo.lock rust-toolchain.toml /rustbuild/
+COPY proto/*.proto /rustbuild/proto/
+RUN \
+   mkdir -p src && \
+   touch src/lib.rs && \
+   cargo build --locked --release
+
+FROM cached_rust_dependencies AS rust_builder
 COPY . .
 RUN cargo build --locked --release
 

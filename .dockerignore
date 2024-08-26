@@ -2,6 +2,8 @@
 **/target/**
 # do not copy git dir
 .git
+# Makefile build outputs
+/build/
 
 # ignore a few files so edits don't invalidate Docker's cache
 Dockerfile

@@ -1,1 +1,3 @@
+# ignore rust and makefile build output
 /target
+/build
