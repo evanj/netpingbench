@@ -125,6 +125,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Runs the Tokio event loop with TCP and gRPC echo implementations.
 fn run_tokio(grpc_listen_addr: &str, tcp_tokio_listen_addr: &str) -> Result<(), ErrorMessageOnly> {
     let runtime = tokio::runtime::Runtime::new()?;
+
+    let rt_metrics = runtime.metrics();
+    println!(
+        "tokio runtime flavor={:?} num_workers={} std::thread::available_parallelism()={}",
+        runtime.handle().runtime_flavor(),
+        rt_metrics.num_workers(),
+        std::thread::available_parallelism().unwrap(),
+    );
+
     let grpc_listen_addr = grpc_listen_addr.to_string();
     let tcp_tokio_listen_addr = tcp_tokio_listen_addr.to_string();
     runtime.block_on(async move { tokio_main(grpc_listen_addr, tcp_tokio_listen_addr).await })?;
