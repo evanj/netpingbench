@@ -29,20 +29,36 @@ const TCP_INITIAL_BUFFER_BYTES: usize = 4096;
 #[derive(Debug)]
 struct EchoService {
     burn_cpu_amount: Duration,
+    burn_spawn_blocking: bool,
 }
 
 impl EchoService {
-    const fn new(burn_cpu_amount: Duration) -> Self {
-        Self { burn_cpu_amount }
+    const fn new(burn_cpu_amount: Duration, burn_spawn_blocking: bool) -> Self {
+        Self {
+            burn_cpu_amount,
+            burn_spawn_blocking,
+        }
     }
 }
 
 #[tonic::async_trait]
 impl Echo for EchoService {
     async fn echo(&self, request: Request<EchoRequest>) -> Result<Response<EchoResponse>, Status> {
-        burn_cpu(self.burn_cpu_amount);
+        tokio_burn_cpu(self.burn_cpu_amount, self.burn_spawn_blocking).await;
         let r = request.into_inner();
         Ok(tonic::Response::new(EchoResponse { output: r.input }))
+    }
+}
+
+/// Uses amount CPU time synchronously. If `spawn_blocking` is true, it will run the [`burn_cpu`]
+/// function on tokio's background thread pool using [`tokio::task::spawn_blocking`].
+async fn tokio_burn_cpu(amount: Duration, spawn_blocking: bool) {
+    if spawn_blocking {
+        tokio::task::spawn_blocking(move || burn_cpu(amount))
+            .await
+            .unwrap();
+    } else {
+        burn_cpu(amount);
     }
 }
 
@@ -70,6 +86,10 @@ struct Args {
     /// <https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html#method.disable_lifo_slot>
     #[arg(long, default_value_t = false)]
     disable_lifo_slot: bool,
+
+    /// Burn CPU using tokio `spawn_blocking`.
+    #[arg(long, default_value_t = false)]
+    burn_spawn_blocking: bool,
 }
 
 /// Parses a Go duration string into a Rust value. The `go-parse-duration` crate is more complete,
@@ -147,6 +167,11 @@ fn raise_nofile_rlimit() -> Result<(), std::io::Error> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    if args.burn_spawn_blocking && args.burn_cpu_amount <= Duration::ZERO {
+        eprintln!("burn_spawn_blocking requires burn_cpu_amount > 0");
+        std::process::exit(1);
+    }
+
     raise_nofile_rlimit()?;
 
     println!(
@@ -164,6 +189,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &args.tcp_tokio_listen_addr,
             args.disable_lifo_slot,
             args.burn_cpu_amount,
+            args.burn_spawn_blocking,
         )
     });
 
@@ -194,6 +220,7 @@ fn run_tokio(
     tcp_tokio_listen_addr: &str,
     disable_lifo_slot: bool,
     burn_cpu_amount: Duration,
+    burn_spawn_blocking: bool,
 ) -> Result<(), ErrorMessageOnly> {
     // Equivalent to tokio::runtime::Runtime::new()
     let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -215,7 +242,13 @@ fn run_tokio(
     let grpc_listen_addr = grpc_listen_addr.to_string();
     let tcp_tokio_listen_addr = tcp_tokio_listen_addr.to_string();
     runtime.block_on(async move {
-        tokio_main(grpc_listen_addr, tcp_tokio_listen_addr, burn_cpu_amount).await
+        tokio_main(
+            grpc_listen_addr,
+            tcp_tokio_listen_addr,
+            burn_cpu_amount,
+            burn_spawn_blocking,
+        )
+        .await
     })?;
     Ok(())
 }
@@ -224,19 +257,23 @@ async fn tokio_main(
     grpc_listen_addr: String,
     tcp_tokio_listen_addr: String,
     burn_cpu_amount: Duration,
+    burn_spawn_blocking: bool,
 ) -> Result<(), ErrorMessageOnly> {
     println!("listening for Tokio TCP on {tcp_tokio_listen_addr} ...");
     let tcp_tokio_parsed: std::net::SocketAddr = tcp_tokio_listen_addr.parse()?;
     let tcp_tokio_listener =
         tokio::net::TcpListener::bind((tcp_tokio_parsed.ip(), tcp_tokio_parsed.port())).await?;
-    let tokio_tcp_echo_handle =
-        tokio::spawn(tokio_echo_server(tcp_tokio_listener, burn_cpu_amount));
+    let tokio_tcp_echo_handle = tokio::spawn(tokio_echo_server(
+        tcp_tokio_listener,
+        burn_cpu_amount,
+        burn_spawn_blocking,
+    ));
 
     println!("listening for gRPC on {grpc_listen_addr} ...");
     let grpc_addr_parsed = grpc_listen_addr.parse()?;
 
     // create the grpc wrappers and listen
-    let echo_service = EchoService::new(burn_cpu_amount);
+    let echo_service = EchoService::new(burn_cpu_amount, burn_spawn_blocking);
     let echo_server = EchoServer::new(echo_service);
     Server::builder()
         .add_service(echo_server)
@@ -255,18 +292,24 @@ async fn tokio_main(
 async fn tokio_echo_server(
     tcp_tokio_listener: tokio::net::TcpListener,
     burn_cpu_amount: Duration,
+    burn_spawn_blocking: bool,
 ) -> Result<(), std::io::Error> {
     loop {
         let (connection, _) = tcp_tokio_listener.accept().await?;
-        tokio::spawn(tokio_echo_connection_no_err(connection, burn_cpu_amount));
+        tokio::spawn(tokio_echo_connection_no_err(
+            connection,
+            burn_cpu_amount,
+            burn_spawn_blocking,
+        ));
     }
 }
 
 async fn tokio_echo_connection_no_err(
     connection: tokio::net::TcpStream,
     burn_cpu_amount: Duration,
+    burn_spawn_blocking: bool,
 ) {
-    match tokio_echo_connection(connection, burn_cpu_amount).await {
+    match tokio_echo_connection(connection, burn_cpu_amount, burn_spawn_blocking).await {
         Ok(()) => {}
         Err(err) => {
             panic!("tokio echo connection failed: {err}");
@@ -277,6 +320,7 @@ async fn tokio_echo_connection_no_err(
 async fn tokio_echo_connection(
     connection: tokio::net::TcpStream,
     burn_cpu_amount: Duration,
+    burn_spawn_blocking: bool,
 ) -> Result<(), tokio::io::Error> {
     let (read_connection, mut write_connection) = connection.into_split();
     let mut reader = tokio::io::BufReader::with_capacity(TCP_INITIAL_BUFFER_BYTES, read_connection);
@@ -290,7 +334,7 @@ async fn tokio_echo_connection(
         }
         assert!(buf.ends_with('\n'));
 
-        burn_cpu(burn_cpu_amount);
+        tokio_burn_cpu(burn_cpu_amount, burn_spawn_blocking).await;
         write_connection.write_all(buf.as_bytes()).await?;
     }
 
