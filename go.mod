@@ -1,15 +1,15 @@
 module github.com/evanj/netpingbench
 
-go 1.23.0
+go 1.23.1
 
 require (
-	golang.org/x/sys v0.24.0
-	google.golang.org/grpc v1.65.0
+	golang.org/x/sys v0.25.0
+	google.golang.org/grpc v1.67.0
 	google.golang.org/protobuf v1.34.2
 )
 
 require (
-	golang.org/x/net v0.28.0 // indirect
-	golang.org/x/text v0.17.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240823204242-4ba0660f739c // indirect
+	golang.org/x/net v0.29.0 // indirect
+	golang.org/x/text v0.18.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240924160255-9d4c2d233b61 // indirect
 )
