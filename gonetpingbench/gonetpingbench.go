@@ -42,7 +42,10 @@ func main() {
 	listenAddr := flag.String("listenAddr", "localhost",
 		"listening address: use empty to listen on all devices")
 	tcpPort := flag.Int("tcpPort", 8001, "port for TCP echo requests")
-	otherTCPPort := flag.Int("otherTCPPort", 0, "additional port for TCP echo requests (use for tokio async)")
+	otherTCPPort := flag.Int("otherTCPPort", 0,
+		"additional port for TCP echo requests (use for tokio async)")
+	tcpNewConnectionPerRequest := flag.Bool("tcpNewConnectionPerRequest", false,
+		"use a new TCP connection for each request")
 	grpcPort := flag.Int("grpcPort", 8002, "port for gRPC echo requests")
 	runDuration := flag.Duration("runDuration", 10*time.Second, "time to run the throughput test")
 	remoteAddr := flag.String("remoteAddr", "",
@@ -50,8 +53,10 @@ func main() {
 	throughputThreads := flag.Int("throughputThreads", 1, "threads to run the throughput test")
 	throughputThreadsEnd := flag.Int("throughputThreadsEnd", 0,
 		"If set: sweep [throughputThreads, throughputThreadsEnd], doubling each time")
-	grpcChannels := flag.Int("grpcChannels", 1, "number of separate gRPC channels to use (max=throughputThreads)")
-	grpcChannelsEnd := flag.Int("grpcChannelsEnd", 0, "If set: sweep [grpcChannels, grpcChannelsEnd] gRPC channels, doubling each time")
+	grpcChannels := flag.Int("grpcChannels", 1,
+		"number of separate gRPC channels to use (max=throughputThreads)")
+	grpcChannelsEnd := flag.Int("grpcChannelsEnd", 0,
+		"If set: sweep [grpcChannels, grpcChannelsEnd] gRPC channels, doubling each time")
 	flag.Parse()
 
 	if *remoteAddr == "" {
@@ -92,19 +97,26 @@ func main() {
 	}
 
 	// TCP test: need separate connections for each thread
-	runTCPThroughputBenchmark(*remoteAddr, *tcpPort, *throughputThreads, *throughputThreadsEnd, *runDuration, "tcp")
+	runTCPThroughputBenchmark(
+		*remoteAddr, *tcpPort, *throughputThreads, *throughputThreadsEnd, *runDuration,
+		"tcp", *tcpNewConnectionPerRequest)
 	if *otherTCPPort != 0 {
-		runTCPThroughputBenchmark(*remoteAddr, *otherTCPPort, *throughputThreads, *throughputThreadsEnd, *runDuration, "other_tcp")
+		runTCPThroughputBenchmark(
+			*remoteAddr, *otherTCPPort, *throughputThreads, *throughputThreadsEnd, *runDuration,
+			"other_tcp", *tcpNewConnectionPerRequest)
 	}
 
 	runGRPCThroughputBenchmark(*remoteAddr, *grpcPort, *throughputThreads, *throughputThreadsEnd, *runDuration, *grpcChannels, *grpcChannelsEnd)
 }
 
-func runTCPThroughputBenchmark(addr string, port int, numClientsStart int, numClientsEnd int, runDuration time.Duration, label string) error {
+func runTCPThroughputBenchmark(
+	addr string, port int, numClientsStart int, numClientsEnd int, runDuration time.Duration,
+	label string, tcpNewConnections bool,
+) error {
 	// TCP test: need separate connections for each thread
 	var clients []echoClient
 	for i := 0; i < numClientsEnd; i++ {
-		client, err := newTCPEchoClient(addr, port)
+		client, err := newTCPEchoClient(addr, port, tcpNewConnections)
 		if err != nil {
 			return err
 		}
@@ -252,16 +264,19 @@ type echoClient interface {
 }
 
 type tcpEchoClient struct {
-	conn net.Conn
-	buf  []byte
+	conn                    net.Conn
+	buf                     []byte
+	addrWithPort            string
+	newConnectionPerRequest bool
 }
 
-func newTCPEchoClient(addr string, port int) (*tcpEchoClient, error) {
-	conn, err := net.Dial("tcp", addr+":"+strconv.Itoa(port))
+func newTCPEchoClient(addr string, port int, tcpNewConnectionPerRequest bool) (*tcpEchoClient, error) {
+	addrWithPort := addr + ":" + strconv.Itoa(port)
+	conn, err := net.Dial("tcp", addrWithPort)
 	if err != nil {
 		return nil, err
 	}
-	return &tcpEchoClient{conn, make([]byte, 0, tcpInitialBufferBytes)}, nil
+	return &tcpEchoClient{conn, make([]byte, 0, tcpInitialBufferBytes), addrWithPort, tcpNewConnectionPerRequest}, nil
 }
 
 func (c *tcpEchoClient) Echo(ctx context.Context, message string) error {
@@ -283,6 +298,18 @@ func (c *tcpEchoClient) Echo(ctx context.Context, message string) error {
 	if n != len(message)+1 {
 		panic(fmt.Sprintf("tcp echo: expected to read %d bytes in reply; read %d",
 			len(message)+1, n))
+	}
+
+	if c.newConnectionPerRequest {
+		err = c.conn.Close()
+		if err != nil {
+			return err
+		}
+		conn, err := net.Dial("tcp", c.addrWithPort)
+		if err != nil {
+			return err
+		}
+		c.conn = conn
 	}
 	return nil
 }
