@@ -3,11 +3,21 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/binary"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
+	"math/big"
 	"net"
 	"os"
 	"strconv"
@@ -18,6 +28,7 @@ import (
 	"github.com/evanj/netpingbench/echopb"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -47,6 +58,7 @@ func main() {
 		"additional port for TCP echo requests (use for tokio async)")
 	tcpNewConnectionPerRequest := flag.Bool("tcpNewConnectionPerRequest", false,
 		"use a new TCP connection for each request")
+	tls := flag.Bool("tls", false, "generate a self-signed TLS certificate and test TLS")
 	grpcPort := flag.Int("grpcPort", 8002, "port for gRPC echo requests")
 	runDuration := flag.Duration("runDuration", 10*time.Second, "time to run the throughput test")
 	remoteAddr := flag.String("remoteAddr", "",
@@ -61,7 +73,10 @@ func main() {
 	flag.Parse()
 
 	if *remoteAddr == "" {
-		runServers(*listenAddr, *tcpPort, *grpcPort)
+		err := runServers(*listenAddr, *tcpPort, *grpcPort, *tls)
+		if err != nil {
+			panic(err)
+		}
 		return
 	}
 	if *grpcChannels < 1 {
@@ -99,25 +114,26 @@ func main() {
 
 	// TCP test: need separate connections for each thread
 	runTCPThroughputBenchmark(
-		*remoteAddr, *tcpPort, *throughputThreads, *throughputThreadsEnd, *runDuration,
+		*remoteAddr, *tcpPort, *tls, *throughputThreads, *throughputThreadsEnd, *runDuration,
 		"tcp", *tcpNewConnectionPerRequest)
 	if *otherTCPPort != 0 {
 		runTCPThroughputBenchmark(
-			*remoteAddr, *otherTCPPort, *throughputThreads, *throughputThreadsEnd, *runDuration,
+			*remoteAddr, *otherTCPPort, *tls, *throughputThreads, *throughputThreadsEnd, *runDuration,
 			"other_tcp", *tcpNewConnectionPerRequest)
 	}
 
-	runGRPCThroughputBenchmark(*remoteAddr, *grpcPort, *throughputThreads, *throughputThreadsEnd, *runDuration, *grpcChannels, *grpcChannelsEnd)
+	runGRPCThroughputBenchmark(*remoteAddr, *grpcPort, *tls,
+		*throughputThreads, *throughputThreadsEnd, *runDuration, *grpcChannels, *grpcChannelsEnd)
 }
 
 func runTCPThroughputBenchmark(
-	addr string, port int, numClientsStart int, numClientsEnd int, runDuration time.Duration,
-	label string, tcpNewConnections bool,
+	addr string, port int, tlsEnabled bool, numClientsStart int, numClientsEnd int,
+	runDuration time.Duration, label string, tcpNewConnections bool,
 ) error {
 	// TCP test: need separate connections for each thread
 	var clients []echoClient
 	for i := 0; i < numClientsEnd; i++ {
-		client, err := newTCPEchoClient(addr, port, tcpNewConnections)
+		client, err := newTCPEchoClient(addr, port, tlsEnabled, tcpNewConnections)
 		if err != nil {
 			return err
 		}
@@ -126,11 +142,14 @@ func runTCPThroughputBenchmark(
 	return runThroughputSweep(clients, numClientsStart, numClientsEnd, runDuration, label, nil)
 }
 
-func runGRPCThroughputBenchmark(addr string, port int, numClientsStart int, numClientsEnd int, runDuration time.Duration, grpcChannelsStart int, grpcChannelsEnd int) error {
+func runGRPCThroughputBenchmark(
+	addr string, port int, tlsEnabled bool, numClientsStart int, numClientsEnd int,
+	runDuration time.Duration, grpcChannelsStart int, grpcChannelsEnd int,
+) error {
 	// gRPC test: share a number of channels
 	var channels []echoClient
 	for i := 0; i < grpcChannelsEnd; i++ {
-		channel, err := newGRPCEchoClient(addr, port)
+		channel, err := newGRPCEchoClient(addr, port, tlsEnabled)
 		if err != nil {
 			panic(err)
 		}
@@ -262,24 +281,46 @@ func runThroughputBenchmark(
 	return nil
 }
 
-func runServers(listenAddr string, tcpPort int, grpcPort int) {
+func newTCPListener(addr string, port int) (net.Listener, error) {
+	return net.Listen("tcp", addr+":"+strconv.Itoa(port))
+}
+
+func runServers(listenAddr string, tcpPort int, grpcPort int, tlsEnabled bool) error {
 	slog.Info("starting TCP and gRPC servers ...",
 		slog.String("listenAddr", listenAddr),
 		slog.Int("grpcPort", grpcPort),
-		slog.Int("tcpPort", tcpPort))
+		slog.Int("tcpPort", tcpPort),
+		slog.Bool("tlsEnabled", tlsEnabled),
+	)
 
-	err := startTCPEchoListener(listenAddr, tcpPort)
+	tcpListener, err := newTCPListener(listenAddr, tcpPort)
 	if err != nil {
-		panic(err)
+		return err
+	}
+	grpcListener, err := newTCPListener(listenAddr, grpcPort)
+	if err != nil {
+		return err
 	}
 
-	err = startGRPCEchoServer(listenAddr, grpcPort)
-	if err != nil {
-		panic(err)
+	var tlsConfig *tls.Config
+	if tlsEnabled {
+		slog.Info("generating self-signed TLS certificate ...")
+		cert, err := newSelfSignedCertificate(nil)
+		if err != nil {
+			return err
+		}
+		tlsConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+		tcpListener = tls.NewListener(tcpListener, tlsConfig)
 	}
+
+	startTCPEchoListener(tcpListener)
+	startGRPCEchoServer(grpcListener, tlsConfig)
 
 	slog.Info("blocking forever to let servers run ...")
 	<-make(chan struct{})
+	return nil
 }
 
 type echoClient interface {
@@ -293,9 +334,15 @@ type tcpEchoClient struct {
 	newConnectionPerRequest bool
 }
 
-func newTCPEchoClient(addr string, port int, tcpNewConnectionPerRequest bool) (*tcpEchoClient, error) {
+func newTCPEchoClient(addr string, port int, tlsEnabled bool, tcpNewConnectionPerRequest bool) (*tcpEchoClient, error) {
 	addrWithPort := addr + ":" + strconv.Itoa(port)
-	conn, err := net.Dial("tcp", addrWithPort)
+	var conn net.Conn
+	var err error
+	if tlsEnabled {
+		conn, err = tls.Dial("tcp", addrWithPort, &tls.Config{InsecureSkipVerify: true})
+	} else {
+		conn, err = net.Dial("tcp", addrWithPort)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -341,8 +388,14 @@ type grpcEchoClient struct {
 	client echopb.EchoClient
 }
 
-func newGRPCEchoClient(addr string, port int) (*grpcEchoClient, error) {
-	conn, err := grpc.NewClient(addr+":"+strconv.Itoa(port), grpc.WithTransportCredentials(insecure.NewCredentials()))
+func newGRPCEchoClient(addr string, port int, tlsEnabled bool) (*grpcEchoClient, error) {
+	var transportCredentials credentials.TransportCredentials
+	if tlsEnabled {
+		transportCredentials = newInsecureTrustAnyCert()
+	} else {
+		transportCredentials = insecure.NewCredentials()
+	}
+	conn, err := grpc.NewClient(addr+":"+strconv.Itoa(port), grpc.WithTransportCredentials(transportCredentials))
 	if err != nil {
 		return nil, err
 	}
@@ -354,15 +407,10 @@ func (c *grpcEchoClient) Echo(ctx context.Context, message string) error {
 	return err
 }
 
-func startTCPEchoListener(addr string, port int) error {
-	lis, err := net.Listen("tcp", addr+":"+strconv.Itoa(port))
-	if err != nil {
-		return err
-	}
-
+func startTCPEchoListener(listener net.Listener) error {
 	go func() {
 		for {
-			conn, err := lis.Accept()
+			conn, err := listener.Accept()
 			if err != nil {
 				slog.Error("failed accepting connection", slog.String("error", err.Error()))
 				continue
@@ -398,21 +446,173 @@ func handleTCPEchoConnection(conn net.Conn) {
 	}
 }
 
-func startGRPCEchoServer(addr string, port int) error {
-	lis, err := net.Listen("tcp", addr+":"+strconv.Itoa(port))
-	if err != nil {
-		panic(err)
+func startGRPCEchoServer(listener net.Listener, tlsConfig *tls.Config) error {
+	var serverOptions []grpc.ServerOption
+	if tlsConfig != nil {
+		serverOptions = []grpc.ServerOption{grpc.Creds(credentials.NewTLS(tlsConfig))}
 	}
-
-	s := grpc.NewServer()
+	s := grpc.NewServer(serverOptions...)
 	echopb.RegisterEchoServer(s, newEchoServer())
 
 	go func() {
-		err := s.Serve(lis)
+		err := s.Serve(listener)
 		if err != nil {
 			slog.Error("failed serving gRPC", slog.String("error", err.Error()))
 			panic(err)
 		}
 	}()
 	return nil
+}
+
+// newSelfSignedCertificates generates an ECDSA P256 key and a self-signed certificate.
+// The hosts list must contain all DNS names or IP addresses used to connect to this server.
+// Based on generate_cert:
+// https://github.com/golang/go/blob/master/src/crypto/tls/generate_cert.go
+func newSelfSignedCertificate(hosts []string) (tls.Certificate, error) {
+	if len(hosts) == 0 {
+		hosts = []string{"localhost", "127.0.0.1"}
+	}
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	notBefore := time.Now().Add(-5 * time.Minute).UTC()
+	const selfSignedValidYears = 1
+	notAfter := notBefore.AddDate(selfSignedValidYears, 0, 0).UTC()
+
+	template := x509.Certificate{
+		// must be unique to avoid errors when serial/issuer is reused with different keys
+		SerialNumber: new(big.Int).SetInt64(getRandomSerial()),
+		Subject: pkix.Name{
+			Organization: []string{"Example Inc"},
+			// does not seem to be required, but makes it more similar to "real" keys
+			CommonName: hosts[0],
+		},
+		NotBefore: notBefore,
+		NotAfter:  notAfter,
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	for _, h := range hosts {
+		if ip := net.ParseIP(h); ip != nil {
+			template.IPAddresses = append(template.IPAddresses, ip)
+		} else {
+			template.DNSNames = append(template.DNSNames, h)
+		}
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEMBlock := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	keyPEMBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
+	return tls.X509KeyPair(certPEMBlock, keyPEMBlock)
+}
+
+// getRandomSerial returns a random 64-bit serial number for a TLS certificate. The serial number
+// is used by some system to cache keys, so it must change when we change the key. With 63 bits
+// the collision probability is unlikely.
+func getRandomSerial() int64 {
+	var id int64 = 0
+	// do not permit an id of zero
+	for id == 0 {
+		err := binary.Read(rand.Reader, binary.LittleEndian, &id)
+		if err != nil {
+			panic("binary.Read failed: " + err.Error())
+		}
+	}
+
+	// clear the top bit to force it to be positive
+	id &= ^(math.MinInt64)
+	return id
+}
+
+// newInsecureTrustAnyCert returns gRPC credentials which uses TLS but trusts any certificate.
+func newInsecureTrustAnyCert() credentials.TransportCredentials {
+	return insecureTrustAnyCertTC{}
+}
+
+type insecureTrustAnyCertTC struct{}
+
+type insecureTrustAnyCertAuthInfo struct {
+	credentials.CommonAuthInfo
+}
+
+func (insecureTrustAnyCertAuthInfo) AuthType() string {
+	return "insecure_tls"
+}
+
+func (insecureTrustAnyCertTC) ClientHandshake(
+	ctx context.Context, authorityHeader string, rawConn net.Conn,
+) (net.Conn, credentials.AuthInfo, error) {
+	// Modified from grpc-go's TLS implementation:
+	// https://github.com/grpc/grpc-go/blob/master/credentials/tls.go
+
+	// serverName, _, err := net.SplitHostPort(authorityHeader)
+	// if err != nil {
+	//      // If the authority had no host port or if the authority cannot be parsed, use it as-is.
+	//      serverName = authorityHeader
+	// }
+	// cfg := &tls.Config{
+	//      ServerName: serverName,
+	// }
+	cfg := &tls.Config{
+		InsecureSkipVerify: true,
+		// HTTP/2 requires ALPN to negotiate "h2"; gRPC requires this also
+		NextProtos: []string{"h2"},
+	}
+
+	conn := tls.Client(rawConn, cfg)
+	errChannel := make(chan error, 1)
+	go func() {
+		errChannel <- conn.Handshake()
+		close(errChannel)
+	}()
+	select {
+	case err := <-errChannel:
+		if err != nil {
+			conn.Close()
+			return nil, nil, err
+		}
+	case <-ctx.Done():
+		conn.Close()
+		return nil, nil, ctx.Err()
+	}
+
+	authInfo := insecureTrustAnyCertAuthInfo{
+		CommonAuthInfo: credentials.CommonAuthInfo{
+			// This actually provides Privacy but no Integrity, but that is not an option
+			SecurityLevel: credentials.NoSecurity,
+		},
+	}
+
+	return conn, authInfo, nil
+}
+
+func (insecureTrustAnyCertTC) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	panic("ServerHandshake not implemented: only for use with clients")
+}
+
+func (insecureTrustAnyCertTC) Info() credentials.ProtocolInfo {
+	return credentials.ProtocolInfo{SecurityProtocol: "insecureTLS"}
+}
+
+func (insecureTrustAnyCertTC) Clone() credentials.TransportCredentials {
+	return insecureTrustAnyCertTC{}
+}
+
+func (insecureTrustAnyCertTC) OverrideServerName(serverName string) error {
+	return fmt.Errorf("insecureTrustAnyCertTC does not support OverrideServerName (serverName=%s)",
+		serverName)
 }
