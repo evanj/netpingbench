@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/evanj/hacks/trivialstats"
 	"github.com/evanj/netpingbench/echopb"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
@@ -158,17 +159,30 @@ func runGRPCThroughputBenchmark(addr string, port int, numClientsStart int, numC
 	return nil
 }
 
-func runThroughputClient(client echoClient, requestsChan chan<- int, exit *atomic.Bool) {
+type clientStats struct {
+	requests            int
+	latencyDistribution *trivialstats.Distribution
+}
+
+func runThroughputClient(client echoClient, requestsChan chan<- clientStats, exit *atomic.Bool) {
 	ctx := context.Background()
 	requests := 0
+	latencyDistribution := trivialstats.NewDistribution()
 	for !exit.Load() {
+		start := time.Now()
 		err := client.Echo(ctx, echoMessage)
+		requestLatency := time.Since(start)
 		if err != nil {
 			panic(err)
 		}
 		requests += 1
+		latencyDistribution.Add(int64(requestLatency))
 	}
-	requestsChan <- requests
+	stats := clientStats{
+		requests:            requests,
+		latencyDistribution: latencyDistribution,
+	}
+	requestsChan <- stats
 }
 
 func runThroughputSweep(
@@ -202,7 +216,7 @@ func runThroughputBenchmark(
 	startUsage := unix.Rusage{}
 	endUsage := unix.Rusage{}
 
-	requestsChan := make(chan int)
+	requestsChan := make(chan clientStats)
 	exit := &atomic.Bool{}
 	for _, client := range clients {
 		go runThroughputClient(client, requestsChan, exit)
@@ -218,20 +232,29 @@ func runThroughputBenchmark(
 		return err
 	}
 
-	total := 0
+	total := clientStats{
+		requests:            0,
+		latencyDistribution: trivialstats.NewDistribution(),
+	}
 	for i := 0; i < len(clients); i++ {
-		total += <-requestsChan
+		clientStats := <-requestsChan
+		total.requests += clientStats.requests
+		total.latencyDistribution.Merge(clientStats.latencyDistribution)
 	}
 
 	clientCPU := time.Duration(endUsage.Utime.Nano() + endUsage.Stime.Nano() -
 		startUsage.Utime.Nano() - startUsage.Stime.Nano())
 
+	latencyStats := total.latencyDistribution.Stats()
 	slogAttrs := []slog.Attr{
 		slog.String("label", label),
 		slog.Int("threads", len(clients)),
-		slog.Float64("requests_per_sec", float64(total)/runDuration.Seconds()),
+		slog.Float64("requests_per_sec", float64(total.requests)/runDuration.Seconds()),
 		slog.Duration("client_cpu_ns", clientCPU),
 		slog.Float64("client_avg_cpu_cores", clientCPU.Seconds()/runDuration.Seconds()),
+		slog.Duration("latency_p50", time.Duration(latencyStats.P50)),
+		slog.Duration("latency_p95", time.Duration(latencyStats.P95)),
+		slog.Duration("latency_p99", time.Duration(latencyStats.P99)),
 	}
 	slogAttrs = append(slogAttrs, extraAttrs...)
 	ctx := context.Background()
