@@ -225,9 +225,12 @@ fn run_tokio(
     // Equivalent to tokio::runtime::Runtime::new()
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all();
+    #[expect(clippy::manual_assert)]
     if disable_lifo_slot {
-        println!("disabling tokio LIFO slot optimization ...");
-        builder.disable_lifo_slot();
+        // println!("disabling tokio LIFO slot optimization ...");
+        // builder.disable_lifo_slot = true;
+        // this became unstable at some point? this didn't seem to make a difference anyway
+        panic!("TODO: implement: disable_lifo_slot requires tokio_unstable");
     }
     let runtime = builder.build()?;
 
