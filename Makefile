@@ -22,7 +22,7 @@ $(BUILD_DIR)/.gocheck_stamp: $(GOFILES) echopb/echo.pb.go | $(BUILD_DIR)
 RUSTFILES:=$(shell find . -name '*.rs')
 
 $(BUILD_DIR)/.rustcheck_stamp: $(RUSTFILES) Cargo.toml Cargo.lock | $(BUILD_DIR)
-	cargo test
+	cargo test --all-targets
 	# disallow warnings so they fail CI
 	cargo clippy --all-targets -- -D warnings
 	cargo fmt
