@@ -12,7 +12,7 @@ COPY . /go/src/
 WORKDIR /go/src
 RUN go build -v -o /go/bin/gonetpingbench ./gonetpingbench
 
-FROM rust:1.81-bookworm AS cached_rust_dependencies
+FROM rust:1.83-bookworm AS cached_rust_dependencies
 WORKDIR /rustbuild
 COPY build.rs Cargo.toml Cargo.lock rust-toolchain.toml /rustbuild/
 COPY proto/*.proto /rustbuild/proto/
