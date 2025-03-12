@@ -12,16 +12,16 @@ use std::thread;
 use std::time::Duration;
 
 use clap::Parser;
-use echopb::echo_server::Echo;
-use echopb::echo_server::EchoServer;
 use echopb::EchoRequest;
 use echopb::EchoResponse;
+use echopb::echo_server::Echo;
+use echopb::echo_server::EchoServer;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
-use tonic::transport::Server;
 use tonic::Request;
 use tonic::Response;
 use tonic::Status;
+use tonic::transport::Server;
 
 // Same as the Go version
 const TCP_INITIAL_BUFFER_BYTES: usize = 4096;
