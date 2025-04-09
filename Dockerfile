@@ -1,6 +1,6 @@
 # This is a hack where we build third-party Go modules the root package depends on
 # TODO: Figure out a less manual way to cache dependencies?
-FROM golang:1.23-bookworm AS cached_modules
+FROM golang:1.24-bookworm AS cached_modules
 WORKDIR /go/src
 COPY go.mod go.sum /go/src/
 RUN go build -v \
@@ -12,7 +12,7 @@ COPY . /go/src/
 WORKDIR /go/src
 RUN go build -v -o /go/bin/gonetpingbench ./gonetpingbench
 
-FROM rust:1.83-bookworm AS cached_rust_dependencies
+FROM rust:1.86-bookworm AS cached_rust_dependencies
 WORKDIR /rustbuild
 COPY build.rs Cargo.toml Cargo.lock rust-toolchain.toml /rustbuild/
 COPY proto/*.proto /rustbuild/proto/
