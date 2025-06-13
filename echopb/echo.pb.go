@@ -4,13 +4,16 @@
 // 	protoc        v6.31.0
 // source: proto/echo.proto
 
+// TODO: use edition 2023 when supported by prost-build
+// Also remove command line flags in Makefile
+// edition = "2023";
+
 package echopb
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
-	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -22,10 +25,10 @@ const (
 )
 
 type EchoRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Input         string                 `protobuf:"bytes,1,opt,name=input,proto3" json:"input,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Input string                 `protobuf:"bytes,1,opt,name=input,proto3"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *EchoRequest) Reset() {
@@ -53,23 +56,36 @@ func (x *EchoRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use EchoRequest.ProtoReflect.Descriptor instead.
-func (*EchoRequest) Descriptor() ([]byte, []int) {
-	return file_proto_echo_proto_rawDescGZIP(), []int{0}
-}
-
 func (x *EchoRequest) GetInput() string {
 	if x != nil {
-		return x.Input
+		return x.xxx_hidden_Input
 	}
 	return ""
 }
 
+func (x *EchoRequest) SetInput(v string) {
+	x.xxx_hidden_Input = v
+}
+
+type EchoRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Input string
+}
+
+func (b0 EchoRequest_builder) Build() *EchoRequest {
+	m0 := &EchoRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Input = b.Input
+	return m0
+}
+
 type EchoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Output        string                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Output string                 `protobuf:"bytes,1,opt,name=output,proto3"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *EchoResponse) Reset() {
@@ -97,16 +113,29 @@ func (x *EchoResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use EchoResponse.ProtoReflect.Descriptor instead.
-func (*EchoResponse) Descriptor() ([]byte, []int) {
-	return file_proto_echo_proto_rawDescGZIP(), []int{1}
-}
-
 func (x *EchoResponse) GetOutput() string {
 	if x != nil {
-		return x.Output
+		return x.xxx_hidden_Output
 	}
 	return ""
+}
+
+func (x *EchoResponse) SetOutput(v string) {
+	x.xxx_hidden_Output = v
+}
+
+type EchoResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Output string
+}
+
+func (b0 EchoResponse_builder) Build() *EchoResponse {
+	m0 := &EchoResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Output = b.Output
+	return m0
 }
 
 var File_proto_echo_proto protoreflect.FileDescriptor
@@ -120,18 +149,6 @@ const file_proto_echo_proto_rawDesc = "" +
 	"\x06output\x18\x01 \x01(\tR\x06output2;\n" +
 	"\x04Echo\x123\n" +
 	"\x04Echo\x12\x13.echopb.EchoRequest\x1a\x14.echopb.EchoResponse\"\x00b\x06proto3"
-
-var (
-	file_proto_echo_proto_rawDescOnce sync.Once
-	file_proto_echo_proto_rawDescData []byte
-)
-
-func file_proto_echo_proto_rawDescGZIP() []byte {
-	file_proto_echo_proto_rawDescOnce.Do(func() {
-		file_proto_echo_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_echo_proto_rawDesc), len(file_proto_echo_proto_rawDesc)))
-	})
-	return file_proto_echo_proto_rawDescData
-}
 
 var file_proto_echo_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_proto_echo_proto_goTypes = []any{

@@ -1,6 +1,14 @@
 syntax = "proto3";
 
+// TODO: use edition 2023 when supported by prost-build
+// Also remove command line flags in Makefile
+// edition = "2023";
+
 package echopb;
+
+// TODO: enable the Go opaque API when on edition 2023
+// import "google/protobuf/go_features.proto";
+// option features.(pb.go).api_level = API_OPAQUE;
 
 service Echo {
   rpc Echo(EchoRequest) returns (EchoResponse) {}

@@ -44,9 +44,8 @@ func newEchoServer() *echoServer {
 }
 
 func (s *echoServer) Echo(ctx context.Context, request *echopb.EchoRequest) (*echopb.EchoResponse, error) {
-	resp := &echopb.EchoResponse{
-		Output: request.Input,
-	}
+	resp := &echopb.EchoResponse{}
+	resp.SetOutput(request.GetInput())
 	return resp, nil
 }
 
@@ -403,7 +402,9 @@ func newGRPCEchoClient(addr string, port int, tlsEnabled bool) (*grpcEchoClient,
 }
 
 func (c *grpcEchoClient) Echo(ctx context.Context, message string) error {
-	_, err := c.client.Echo(ctx, &echopb.EchoRequest{Input: message})
+	req := &echopb.EchoRequest{}
+	req.SetInput(message)
+	_, err := c.client.Echo(ctx, req)
 	return err
 }
 

@@ -4,6 +4,10 @@
 // - protoc             v6.31.0
 // source: proto/echo.proto
 
+// TODO: use edition 2023 when supported by prost-build
+// Also remove command line flags in Makefile
+// edition = "2023";
+
 package echopb
 
 import (

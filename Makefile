@@ -21,7 +21,7 @@ $(BUILD_DIR)/.gocheck_stamp: $(GOFILES) echopb/echo.pb.go | $(BUILD_DIR)
 # Make's wildcard function can't match all
 RUSTFILES:=$(shell find . -name '*.rs')
 
-$(BUILD_DIR)/.rustcheck_stamp: $(RUSTFILES) Cargo.toml Cargo.lock | $(BUILD_DIR)
+$(BUILD_DIR)/.rustcheck_stamp: $(RUSTFILES) Cargo.toml Cargo.lock proto/* | $(BUILD_DIR)
 	cargo test --all-targets
 	# disallow warnings so they fail CI
 	cargo clippy --all-targets -- -D warnings
@@ -29,7 +29,9 @@ $(BUILD_DIR)/.rustcheck_stamp: $(RUSTFILES) Cargo.toml Cargo.lock | $(BUILD_DIR)
 	touch $@
 
 echopb/echo.pb.go: proto/echo.proto $(BUILD_DIR)/.proto_format_stamp $(PROTOC) $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC)
+	# TODO: Remove default_api_level when we are on the new edition
 	$(PROTOC) --plugin=$(PROTOC_GEN_GO) --plugin=$(PROTOC_GEN_GO_GRPC) \
+		--go_opt=default_api_level=API_OPAQUE \
 		--go_out=. --go_opt=Mproto/echo.proto=./echopb \
 		--go-grpc_out=. --go-grpc_opt=Mproto/echo.proto=./echopb \
 		$<
