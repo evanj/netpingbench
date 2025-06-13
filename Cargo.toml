@@ -12,7 +12,7 @@ style = "deny"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 libc = "0"
-prost = "0"
+prost = "0.13" # TODO: Update to prost 0.14 when supported by tonic
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tonic = "0"
 
