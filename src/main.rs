@@ -96,7 +96,7 @@ struct Args {
 /// Parses a Go duration string into a Rust value. The `go-parse-duration` crate is more complete,
 /// but it uses `chrono::Duration`. This version has no dependencies.
 ///
-/// TODO: Support all GO formats. Currently only supports us, ms and s.
+/// TODO: Support all Go units.
 ///
 /// # Errors
 /// * [`ParseDurationError`]: If the input arg is not parsable.
@@ -151,13 +151,13 @@ fn raise_nofile_rlimit() -> Result<(), std::io::Error> {
         rlim_cur: 0,
         rlim_max: 0,
     };
-    let result = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut nofile_limit) };
+    let result = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut nofile_limit) };
     if result != 0 {
         return Err(std::io::Error::last_os_error());
     }
 
     nofile_limit.rlim_cur = nofile_limit.rlim_max;
-    let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &nofile_limit) };
+    let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const nofile_limit) };
     if result != 0 {
         Err(std::io::Error::last_os_error())
     } else {

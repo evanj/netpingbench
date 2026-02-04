@@ -5,6 +5,7 @@
 // source: proto/echo.proto
 
 // TODO: use edition 2023 when supported by prost-build
+// https://github.com/tokio-rs/prost/issues/1031
 // Also remove command line flags in Makefile
 // edition = "2023";
 
