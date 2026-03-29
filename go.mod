@@ -3,7 +3,7 @@ module github.com/evanj/netpingbench
 go 1.26.1
 
 require (
-	github.com/evanj/hacks v0.0.0-20260204161704-3f2598d9d421
+	github.com/evanj/hacks v0.0.0-20260325134410-63cb2bf6e346
 	golang.org/x/sys v0.42.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
