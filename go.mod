@@ -1,17 +1,17 @@
 module github.com/evanj/netpingbench
 
-go 1.26.1
+go 1.26.5
 
 require (
-	github.com/evanj/hacks v0.0.0-20260325134410-63cb2bf6e346
-	golang.org/x/sys v0.42.0
-	google.golang.org/grpc v1.79.3
+	github.com/evanj/hacks v0.0.0-20260520170627-8c47eb4dbd54
+	golang.org/x/sys v0.46.0
+	google.golang.org/grpc v1.82.0
 	google.golang.org/protobuf v1.36.11
 )
 
 require (
-	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
-	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7 // indirect
+	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
 )

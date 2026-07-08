@@ -456,7 +456,7 @@ mod tests {
             },
             TestDefinition {
                 input: "1000ms",
-                expected: Duration::from_millis(1000),
+                expected: Duration::from_secs(1),
             },
             TestDefinition {
                 input: "42us",
