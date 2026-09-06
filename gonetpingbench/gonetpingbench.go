@@ -131,7 +131,7 @@ func runTCPThroughputBenchmark(
 ) error {
 	// TCP test: need separate connections for each thread
 	var clients []echoClient
-	for i := 0; i < numClientsEnd; i++ {
+	for range numClientsEnd {
 		client, err := newTCPEchoClient(addr, port, tlsEnabled, tcpNewConnections)
 		if err != nil {
 			return err
@@ -147,7 +147,7 @@ func runGRPCThroughputBenchmark(
 ) error {
 	// gRPC test: share a number of channels
 	var channels []echoClient
-	for i := 0; i < grpcChannelsEnd; i++ {
+	for range grpcChannelsEnd {
 		channel, err := newGRPCEchoClient(addr, port, tlsEnabled)
 		if err != nil {
 			panic(err)
@@ -157,16 +157,13 @@ func runGRPCThroughputBenchmark(
 	// distribute the channels across threads
 	for grpcChannels := grpcChannelsStart; grpcChannels <= grpcChannelsEnd; grpcChannels *= 2 {
 		var clients []echoClient
-		for i := 0; i < numClientsEnd; i++ {
+		for i := range numClientsEnd {
 			clients = append(clients, channels[i%grpcChannels])
 		}
 		grpcChannelsAttr := []slog.Attr{slog.Int("grpc_channels", grpcChannels)}
 
 		// numClientsStart must be >= grpcChannels: otherwise we are using fewer channels
-		numClientsStartThisRun := numClientsStart
-		if grpcChannels > numClientsStartThisRun {
-			numClientsStartThisRun = grpcChannels
-		}
+		numClientsStartThisRun := max(grpcChannels, numClientsStart)
 		err := runThroughputSweep(
 			clients, numClientsStartThisRun, numClientsEnd, runDuration, "grpc", grpcChannelsAttr,
 		)
@@ -254,7 +251,7 @@ func runThroughputBenchmark(
 		requests:            0,
 		latencyDistribution: trivialstats.NewDistribution(),
 	}
-	for i := 0; i < len(clients); i++ {
+	for range clients {
 		clientStats := <-requestsChan
 		total.requests += clientStats.requests
 		total.latencyDistribution.Merge(clientStats.latencyDistribution)
@@ -592,10 +589,8 @@ func (insecureTrustAnyCertTC) ClientHandshake(
 	}
 
 	authInfo := insecureTrustAnyCertAuthInfo{
-		CommonAuthInfo: credentials.CommonAuthInfo{
-			// This actually provides Privacy but no Integrity, but that is not an option
-			SecurityLevel: credentials.NoSecurity,
-		},
+		// This actually provides Privacy but no Integrity, but that is not an option
+		SecurityLevel: credentials.NoSecurity,
 	}
 
 	return conn, authInfo, nil
